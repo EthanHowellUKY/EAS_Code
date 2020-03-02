@@ -1,6 +1,6 @@
 # Single-Degree-of-Freedom Experiments Demonstrating Electromagnetic Formation Flying for Small Satellite Swarms Using Piecewise-Sinusoidal Controls
 ---
-This project is dedicated for Electromagnetic Actuation and Pulse Sensing in Single Degree of Freedom. The program written in this repository is for Experiment Setup that was built by [Ajin Sunny](https://github.com/ajinsunny). The program was originally written by [Ajin Sunny](https://github.com/ajinsunny). The program was last uploaded on 10-04-2019. 
+This project is dedicated for Electromagnetic Actuation and Pulse Sensing in Single Degree of Freedom. The program written in this repository is for Experiment Setup that was built by [Ajin Sunny](https://github.com/ajinsunny). The program was originally written by [Ajin Sunny](https://github.com/ajinsunny), with ongoing development toward Two-Degree-of-Freedom by [Ethan Howell](https://github.com/EthanHowellUKY). The program was last uploaded on 03-01-2020. 
 
 ## Experimental Setup 
 ---
@@ -24,7 +24,7 @@ The experimental setup consists of the assembly of all the hardware components l
 
 ## Installing
 ---
-Refer to the folder [CODE](https://github.com/ajinsunny/EAS_Code/tree/master/CODE) for open-loop and closed-loop controls experiment code.
+Refer to the folder [CODE](https://github.com/EthanHowellUKY/EAS_Code/tree/master/CODE) for open-loop and closed-loop controls experiment code.
 
 ## Deployment
 ---
@@ -38,6 +38,7 @@ Contribution towards [Coordinated Position and Attitude Control for Formations o
 ## Author
 ---
 * **Ajin Sunny** - *Initial work* - [Ajin Sunny](https://github.com/ajinsunny)
+* **Ethan Howell** - *Ongoing work* - [Ethan Howell](https://github.com/EthanHowellUKY)
 * **Piper Cannon** - *Future Work* - [Piper Cannon](https://github.com/pipercannon)
 
 ## License
