@@ -1,21 +1,13 @@
 
 #include "EAS.h"
 
-  //--------------------------//
- //    * Self Satellite *    //
-//--------------------------//
+/*==============================*/
+   //--------------------------//
+  //    * Self Satellite *    //
+ //--------------------------//
+/*==============================*/
 
-void iSat::iSat(uint8_t* sensAddrs, uint8_t xbAddr, int* shtPins) {
-    selfID ID;
-    ID.SADDR = sensAddrs;
-    ID.XADDR = xbAddr;
-    ID.SHT = shtPins;
-}
-
-void iSat::initLIDAR() {
-    i2c = &Wire;
-
-}
+void iSat::initialize(char fName[10]);
 
 void iSat::getPosition() {
 
@@ -29,10 +21,6 @@ void iSat::writeFile() {
 
 }
 
-void iSat::initComms() {
-
-}
-
 void iSat::talk() {
 
 }
@@ -41,31 +29,19 @@ void iSat::listen() {
 
 }
 
-void iSat:: binaryToCsv() {
+void iSat::initLIDAR() {
 
 }
 
-void iSat::createBinFile() {
+void iSat::initComms() {
 
 }
 
-void iSat::logData() {
+void iSat::initSD() {
 
 }
 
-void iSat::recordBinFile() {
-
-}
-
-void iSat::renameBinFile() {
-
-}
-
-void iSat::printData(Print* pr, SatDat* data) {
-
-}
-
-void iSat::acquireData(SatDat* data) {
+void iSat::printData(Print* pr) {
 
 }
 
