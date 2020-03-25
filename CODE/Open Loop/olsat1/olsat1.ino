@@ -29,17 +29,23 @@
    //                 * MISC VARIABLES *                  //
   // --------------------------------------------------- //
 /*===========================================================*/
-unsigned long period = 50000; // Experiment runtime in millis
+unsigned long period = 10000; // Experiment runtime in millis
 unsigned int startime = 0;    // Begin time of data collection
 unsigned int endtime = 0;     // End time of data collection
 unsigned int exp_start;       // Start time of experiment
 const float c = 8.5;          // Constant in feedback,  revisit
-double k1a = 28.5;            // Gain, not sure,        revisit
+float ka = 28.5;              // Gain, not sure,        revisit
 float kr = 1;                 // Gain, not sure,        revisit
 float kv = 1;                 // Gain, not sure,        revisit
-double desired_dist = 0.350;  // Desired relative distance, (m)
-double a = 0.97;              // Filtering constant,    revisit
-const int numSamples = 20;    // Number of distance samples
+float desired_dist = 0.350;   // Desired relative distance, (m)
+float a = 0.97;               // Filtering constant,    revisit
+const int numSamples = 50;    // Number of distance samples
+const int numAvgs = 2;        // Number of times to average dist
+const int updateFreq = 10;    // Update frequency of feedback
+const int sinFreq = 10;       // Desired frequency of sine wave
+
+// Caclulate the sampling time based on the user defined params
+float sampleTime = (1000.0/updateFreq) / (numAvgs * numSamples);
 /*===========================================================*/
     // --------------------------------------------------- //
    //                 * VL53L0X DEFINITIONS *             //
@@ -56,47 +62,80 @@ struct nSat {
    *      satellite. All data is local to that satellite for
    *      optimality.
    */
-  double dist = 0.0;            // Measured relative distance
-  double vel = 0.0;             // Approx relative velocity
-  double velsat = 0.0;          // Velocity w/saturation          
-  double A_v = 0.0;             // Voltage Amplitude
-  double A_d = 0.0;             // Digital Amplitude
-  double vel_hist[2] = {0.0};   // Cache of velocity measurement
-  double dist_hist[2] = {0.0};  // Cache of distance measurement
-  double dist_time[2] = {0.0};  // Recorded read times;
-  int i = 2;                    // Iterator to determine idx
+  float dist = 0.0;             // Measured relative distance
+  //float d1 = 0.0;
+  //float d2 = 0.0;
+  //float dt1 = 0.0;
+  //float dt2 = 0.0;
+  //float dt = 0.0;
+  //float dtavg = 0.0;
+  float vel = 0.0;              // Approx relative velocity
+  float velsat = 0.0;           // Velocity w/saturation
+  float A_v = 0.0;              // Voltage Amplitude
+  float A_d = 0.0;              // Digital Amplitude
+  float vel_hist[2] = {0.0};    // Cache of velocity measurement
+  float velocity_final[2] = {0.0};
+  float dist_hist[2] = {0.0};   // Cache of distance measurement
+  float dist_time[2] = {0.0};   // Recorded read times;
+  int jj = 2;                   // Iterator to determine idx
   int idx;                      // idx used to access Cache
-  double beta;                  // Feedback variable,   revisit
+  float beta;                   // Feedback variable,   revisit
+  /*=========================================================*/
+      // ------------------------------------------------- //
+     //        * LINEAR FIT OF RELATIVE DISTANCE *        //
+    // ------------------------------------------------- //
+  /*=========================================================*/
+  float fitData(float meas) {
+    /*
+     *      Curve fit collected position data to the desired
+     *      scale. This equation was generated using a linear
+     *      fit in Excel.
+     *
+     *      Inputs
+     *      -------
+     *        float meas
+     *          Averaged distance measurement taken from
+     *          Pololu VL53L0X. Units in mm.
+     *
+     *      Returns
+     *      -------
+     *        float fitData()
+     *          Converted distance value to referenced values
+     *          between 20-150mm. Units in m.
+     */
+    return (0.6427 * meas + 5.7245) / 1000.00 + 0.2;
+  }
   /*=========================================================*/
       // ------------------------------------------------- //
      //          * RELATIVE DISTANCE AVERAGING *          //
     // ------------------------------------------------- //
   /*=========================================================*/
-  double sensorDistRead(VL53L0X* sens) {
-    /*     
+  float sensorDistRead(VL53L0X* sens) {
+    /*
      *      Read raw data from the VL53L0X sensor, and average
      *      over a given number of samples.
-     *      
+     *
      *      Inputs
      *      -------
      *        VL53L0X* sens
      *          Pointer to the Pololu sensor object
-     *      
+     *
      *      Returns
      *      -------
-     *        double final_relative_dist
+     *        float final_relative_dist
      *          The averaged relative distance between this
      *          satellite and the next. Units are in mm
      */
-    double sum = 0.0;
-    double final_relative_dist = 0.0;
-    double avg_dist = 0.0;
+    float sum = 0.0;
+    float final_relative_dist = 0.0;
+    float avg_dist = 0.0;
 
     for(int kk=0; kk<numSamples; ++kk) {
       sum += sens->readReg16Bit(sens->RESULT_RANGE_STATUS + 10); // Range in meters + offset
+      delay(sampleTime);
     }
     avg_dist = sum/numSamples;
-    final_relative_dist = 0.6427 * avg_dist + 205.7245;
+    final_relative_dist = fitData(avg_dist);
 
     return final_relative_dist;
   }
@@ -108,57 +147,94 @@ struct nSat {
   void velocity_func(VL53L0X* sens) {
     /*
      *      A finite difference method which uses the average
-     *      distance over a given number of samples to 
+     *      distance over a given number of samples to
      *      approximate the relative velocity between satellites.
-     *      
+     *
      *      Inputs
      *      -------
      *        VL53L0X* sens
      *          Pointer to the Pololu sensor object
-     *          
+     *
      *      Returns
      *      -------
-     *        double velsat
+     *        float velsat
      *          The estimated relative velocity between this
      *          satellite and the next. Units are in m/s
      */
-    dist = 0.0;
-    for(int ii = 0; ii<2; ++ii) {
+
+    // The following block calculates the velocity based on an
+    // averaged distance
+    /*
+    float dist_avg = 0.0;
+    for(int ii = 0; ii<numAvgs; ++ii) {
       dist_hist[ii] = sensorDistRead(sens);
-      dist_time[ii] = (double)millis();
-      dist += dist_hist[ii];
+      dist_time[ii] = (float)millis()/1000.00;
+      if(dist_hist[ii] >= 0.9) {
+        dist_hist[ii] = dist;
+      }
+      dist_avg += dist_hist[ii];
+      dtavg += dist_time[ii];
     }
-    
+
     // Get the average relative distance to write to file
-    dist /= 2;
-    idx = i % 2; // Use the modulus as index so we don't
-                 // continually have to reset arrays
+    dist_avg /= numAvgs;
+    dtavg /= numAvgs;
+
+    d1 = dist_hist[0];
+    d2 = dist_hist[1];
+    dt1 = dist_time[0];
+    dt2 = dist_time[1];
+
+    idx = jj % 2; // Use the modulus as index so we don't
+                  // continually have to reset arrays
 
     // Estimate the velocity as dx/dt
-    vel_hist[idx] = (dist_hist[1] - dist_hist[0]) 
-                  / (dist_time[1] - dist_time[0]);
+    vel_hist[idx] = (dist_avg - dist)
+                  / (dtavg - dt);
+    */
+
+    // The following block calculates velocity based on
+    // an average velocity
+    float vel_avg = 0.0;
+    float dist_avg = 0.0;
+    int curIdx;
+    for(int ii=2; ii<numSamples+2; ++ii) {
+      curIdx = ii % 2;
+      dist_hist[curIdx] = fitData(sens->readReg16Bit(sens->RESULT_RANGE_STATUS + 10));
+      dist_time[curIdx] = (float)millis()/1000.00;
+
+      dist_avg += dist_hist[curIdx];
+      vel_avg += (dist_hist[curIdx] - dist_hist[!curIdx])
+                / (dist_time[curIdx] - dist_time[!curIdx]);
+      delay(sampleTime);
+    }
+
+    idx = jj % 2; // Use the modulus as index so we don't
+                  // continually have to reset arrays
+    vel_hist[idx] = vel_avg / numSamples;
+    dist = dist_avg / numSamples;
 
     // Saturate if moving too fast
-    if( abs(vel_hist[idx] > 0.5) ) {
+    if(abs(vel_hist[idx]) > 0.5) {
       vel_hist[idx] = vel_hist[!idx];
     }
 
-    /* Uncomment if filtering is needed
-
-    velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
-
-    */
+    // Uncomment if filtering is needed
+    //velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
+    velocity_final[idx] = vel_hist[idx];
 
     // If velocity is small enough, saturate it to smooth control
-    if( abs(vel_hist[idx]) <= 0.01 ) {
+    if( abs(velocity_final[idx]) <= 0.001 ) {
       velsat = 0;
     }
     else {
-      velsat = vel_hist[idx];
+      velsat = velocity_final[idx];
     }
 
-    vel = vel_hist[idx]; // Store the new velocity
-    ++i; // Increment so that our modulus indexing will continue
+    vel = velocity_final[idx]; // Store the new velocity
+    ++jj; // Increment so that our modulus indexing will continue
+    //dist = dist_avg;
+    //dt = dtavg;
   }
   /*=========================================================*/
       // ------------------------------------------------- //
@@ -167,37 +243,37 @@ struct nSat {
   /*=========================================================*/
   void feedback_algorithm() {
     /*
-     *      Satellite feedback control algorithm. This algorithm     
+     *      Satellite feedback control algorithm. This algorithm
      *      computes the amplitude of the sine wave necessary to
      *      minimize the error between our current estimated
      *      relative distance, and desired relative distance.
-     *      
+     *
      *      Inputs
      *      -------
      *        None
-     *          
+     *
      *      Returns
      *      -------
-     *        double A_v
+     *        float A_v
      *          Amplitude in volts that we are sending to the
      *          Copley Controls amplifier. This amplifier then
      *          converts the voltage amplitude to a current
      *          amplitude proportional to some scaling factor.
      *          Units are in Volts.
-     *          
-     *        double A_d
+     *
+     *        float A_d
      *          Digital Amplitude value to be passed into the
      *          sine wave generation function. Value is
      *          proportional to the voltage amplitude by some
      *          constant.
      */
-    double Amplitude;
-    beta = (tanh(kr * (dist - desired_dist)) + c*tanh(kv * vel));
+    float Amplitude;
+    beta = (tanh(kr * (dist - desired_dist)) + c*tanh(kv * velsat));
     if(beta > 0) {
-      Amplitude = k1a * pow(dist,2) * (pow(abs(beta),0.5));
+      Amplitude = ka * pow(dist,2) * (pow(abs(beta),0.5));
     }
     else {
-      Amplitude = -1 * k1a * pow(dist,2) * (pow(abs(beta),0.5));
+      Amplitude = -1 * ka * pow(dist,2) * (pow(abs(beta),0.5));
     }
 
     if(Amplitude > 3.50) {
@@ -217,7 +293,7 @@ struct nSat {
 // Top level struct containing data for N Satellites.
 // Define as many nested structures as there are neighbor sats.
 struct satdat {
-  double ms;
+  float ms;
   nSat sat1;
 } sat;
 /*===========================================================*/
@@ -237,26 +313,34 @@ char filename[20] = "sat1.csv";   // Filename to save data
 void writeHeader(Print* pr) {
   /*
    *      Write the csv file header
-   *      
+   *
    *      Inputs
    *      -------
    *        Print* pr
    *          Pointer to printable object, i.e. Serial, SD, etc.
-   *          
+   *
    *      Returns
    *      -------
    *        None
    */
   pr->print(F("Time"));
-  pr->write(',');
+  pr->print(',');
+  //pr->print("dt1");
+  //pr->print(',');
+  //pr->print("dt2");
+  //pr->print(',');
   pr->print("Distance");
-  pr->write(',');
+  pr->print(',');
+  //pr->print("d1");
+  //pr->print(',');
+  //pr->print("d2");
+  //pr->print(',');
   pr->print("Velocity");
-  pr->write(',');
+  pr->print(',');
   pr->print("SaturatedVelocity");
-  pr->write(',');
+  pr->print(',');
   pr->print("Amplitude");
-  pr->write(',');
+  pr->print(',');
   pr->print("AmplitudeDigital");
   pr->println();
 }
@@ -268,30 +352,38 @@ void writeHeader(Print* pr) {
 void printData(Print* pr, satdat* sat) {
   /*
    *      Write measured data to the csv file
-   *      
+   *
    *      Inputs
    *      -------
    *        Print* pr
    *          Pointer to printable object, i.e. Serial, SD, etc.
-   *          
+   *
    *        satdat* sat
    *          Pointer to the structure containing individual
    *          satellite data.
-   *          
+   *
    *      Returns
    *      -------
    *        None
    */
   pr->print((millis()-exp_start)/1000.00,8);  // Current Time
-  pr->write(',');
+  pr->print(',');
+  //pr->print(sat->sat1.dt1,8);
+  //pr->print(',');
+  //pr->print(sat->sat1.dt2,8);
+  //pr->print(',');
   pr->print(sat->sat1.dist,8);    // Distance
-  pr->write(',');
+  pr->print(',');
+  //pr->print(sat->sat1.d1,8);
+  //pr->print(',');
+  //pr->print(sat->sat1.d2,8);
+  //pr->print(',');
   pr->print(sat->sat1.vel,8);     // Velocity
-  pr->write(',');
+  pr->print(',');
   pr->print(sat->sat1.velsat,8);  // Saturated Velocity
-  pr->write(',');
+  pr->print(',');
   pr->print(sat->sat1.A_v,8);     // Voltage Amplitude
-  pr->write(',');
+  pr->print(',');
   pr->print(sat->sat1.A_d,8);     // Digital Amplitude
   pr->println();
 }
@@ -305,11 +397,11 @@ void initLIDAR() {
    *      Initialize the LIDAR sensor. Cycle the shutoff pin
    *      so that we can write a new address (redundant if only
    *      one I2C sensor is present).
-   *      
+   *
    *      Inputs
    *      -------
    *        None
-   *          
+   *
    *      Returns
    *      -------
    *        None
@@ -348,11 +440,11 @@ void initSD() {
   /*
    *      Initialize the SD card and SD file to read and write
    *      data to SD.
-   *      
+   *
    *      Inputs
    *      -------
    *        None
-   *          
+   *
    *      Returns
    *      -------
    *        None
@@ -399,21 +491,21 @@ void setup() {
    *      "exit()" method. This method of ending the code is not
    *      recommended as there is no default OS to defer to on
    *      the Arduino.
-   *      
+   *
    *      Experiment begins by initializing the necessary
    *      external components (LIDAR, SD, etc.). User is then
    *      prompted to begin the experiment via key input over
    *      XBEE Series1 RF module.
-   *      
+   *
    *      Once begun, the experiment will collect measurements
    *      and write data to SD file until the runtime of the
    *      experiment is reached. At this time data is saved,
    *      and SD file closed.
-   *      
+   *
    *      Inputs
    *      -------
    *        None
-   *          
+   *
    *      Returns
    *      -------
    *        None
@@ -439,7 +531,7 @@ void setup() {
   Serial.println("Satellite 1 ready, awaiting input.");
   while(Serial.available() == 0) {}
   while(Serial.read() != 'A') {}
-  Serial.write("Starting..");
+  Serial.println("Starting..");
 
   // BEGIN EXPERIMENT //
   exp_start = millis();
@@ -473,7 +565,7 @@ void setup() {
       Serial.print((endtime-exp_start)/1000.00);
       Serial.print('\t');
       Serial.print("Diff: ");
-      Serial.println((endtime-startime));
+      Serial.println((endtime-startime)/1000.00);
 
       // If meas/write finished within update period, wait until
       // the end of the period.

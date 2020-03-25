@@ -39,7 +39,13 @@ float kr = 1;                 // Gain, not sure,        revisit
 float kv = 1;                 // Gain, not sure,        revisit
 double desired_dist = 0.350;  // Desired relative distance, (m)
 double a = 0.97;              // Filtering constant,    revisit
-const int numSamples = 20;    // Number of distance samples
+const int numSamples = 50;    // Number of distance samples
+const int numAvgs = 2;        // Number of times to average dist
+const int updateFreq = 10;    // Update frequency of feedback
+const int sinFreq = 10;       // Desired frequency of sine wave
+
+// Caclulate the sampling time based on the user defined params
+float sampleTime = (1000.0/updateFreq) / (numAvgs * numSamples);
 /*===========================================================*/
     // --------------------------------------------------- //
    //                 * VL53L0X DEFINITIONS *             //
@@ -65,11 +71,37 @@ struct nSat {
   double A_v = 0.0;             // Voltage Amplitude
   double A_d = 0.0;             // Digital Amplitude
   double vel_hist[2] = {0.0};   // Cache of velocity measurement
+  double velocity_final[2] = {0.0};
   double dist_hist[2] = {0.0};  // Cache of distance measurement
   double dist_time[2] = {0.0};  // Recorded read times;
-  int i = 2;                    // Iterator to determine idx
+  int jj = 2;                   // Iterator to determine idx
   int idx;                      // idx used to access Cache
   double beta;                  // Feedback variable,   revisit
+  /*=========================================================*/
+      // ------------------------------------------------- //
+     //        * LINEAR FIT OF RELATIVE DISTANCE *        //
+    // ------------------------------------------------- //
+  /*=========================================================*/
+  double fitData(double meas) {
+    /*     
+     *      Curve fit collected position data to the desired
+     *      scale. This equation was generated using a linear
+     *      fit in Excel.
+     *      
+     *      Inputs
+     *      -------
+     *        double meas
+     *          Averaged distance measurement taken from
+     *          Pololu VL53L0X. Units in mm.
+     *      
+     *      Returns
+     *      -------
+     *        double fitData()
+     *          Converted distance value to referenced values
+     *          between 20-150mm. Units in m.
+     */
+    return (0.6427 * meas + 5.7245) / 1000.00 +0.2;
+  }
   /*=========================================================*/
       // ------------------------------------------------- //
      //          * RELATIVE DISTANCE AVERAGING *          //
@@ -97,9 +129,10 @@ struct nSat {
 
     for(int kk=0; kk<numSamples; ++kk) {
       sum += sens->readReg16Bit(sens->RESULT_RANGE_STATUS + 10); // Range in meters + offset
+      delay(sampleTime);
     }
     avg_dist = sum/numSamples;
-    final_relative_dist = 0.6427 * avg_dist + 205.7245;
+    final_relative_dist = fitData(avg_dist);
 
     return final_relative_dist;
   }
@@ -134,23 +167,21 @@ struct nSat {
     
     // Get the average relative distance to write to file
     dist /= 2;
-    idx = i % 2; // Use the modulus as index so we don't
-                 // continually have to reset arrays
+    idx = jj % 2; // Use the modulus as index so we don't
+                  // continually have to reset arrays
 
     // Estimate the velocity as dx/dt
     vel_hist[idx] = (dist_hist[1] - dist_hist[0]) 
                   / (dist_time[1] - dist_time[0]);
 
     // Saturate if moving too fast
-    if( abs(vel_hist[idx] > 0.5) ) {
+    if( abs(vel_hist[idx]) > 0.5 ) {
       vel_hist[idx] = vel_hist[!idx];
     }
 
-    /* Uncomment if filtering is needed
-
-    velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
-
-    */
+    // Uncomment if filtering is needed
+    //velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
+    velocity_final[idx] = vel_hist[idx];
 
     // If velocity is small enough, saturate it to smooth control
     if( abs(vel_hist[idx]) <= 0.01 ) {
@@ -161,7 +192,7 @@ struct nSat {
     }
 
     vel = vel_hist[idx]; // Store the new velocity
-    ++i; // Increment so that our modulus indexing will continue
+    ++jj; // Increment so that our modulus indexing will continue
   }
   /*=========================================================*/
       // ------------------------------------------------- //
