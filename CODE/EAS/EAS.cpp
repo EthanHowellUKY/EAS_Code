@@ -3,7 +3,7 @@
 
 /*============================================================================*/
    //------------------------------------------------------------------------//
-  //                         * Neighbor Satellite *                         //
+  //                         * Neighbor Satellite *                        //
  //------------------------------------------------------------------------//
 /*============================================================================*/
 
@@ -81,7 +81,7 @@ float nSAT::getDistance() {
     return final_relative_dist;
 }
 
-void nSAT::getVelocity() {
+void nSAT::getVelocity(VL53L0X* sens) {
     /*
      *      A finite difference method which uses the average
      *      distance over a given number of samples to
@@ -94,11 +94,52 @@ void nSAT::getVelocity() {
      *
      *      Returns
      *      -------
-     *        float velsat
+     *        float sat_velocity
      *          The estimated relative velocity between this
      *          satellite and the next. Units are in m/s
      */
+     float vel_avg = 0.0;
+     float dist_avg = 0.0;
+     int curIdx;
+     for(int ii=2; ii<numSamples+2; ++ii) {
+       curIdx = ii % 2;
+       dist_hist[curIdx] = fitData(sens->readReg16Bit(sens->RESULT_RANGE_STATUS + 10));
+       dist_time[curIdx] = (float)millis()/1000.00;
 
+       dist_avg += dist_hist[curIdx];
+       vel_avg += (dist_hist[curIdx] - dist_hist[!curIdx])
+                 / (dist_time[curIdx] - dist_time[!curIdx]);
+       delay(sampleTime);
+     }
+
+     idx = jj % 2; // Use the modulus as index so we don't
+                   // continually have to reset arrays
+     vel_hist[idx] = vel_avg / numSamples;
+     distance = dist_avg / numSamples;
+
+     // Saturate if moving too fast
+     if(abs(vel_hist[idx]) > 0.5) {
+       vel_hist[idx] = vel_hist[!idx];
+     }
+
+     // Uncomment if filtering is needed
+     //velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
+     velocity_final[idx] = vel_hist[idx];
+
+     // If velocity is small enough, saturate it to smooth control
+     if( abs(velocity_final[idx]) <= 0.001 ) {
+       sat_velocity = 0;
+     }
+     else {
+       sat_velocity = velocity_final[idx];
+     }
+
+     velocity = velocity_final[idx]; // Store the new velocity
+     ++jj; // Increment so that our modulus indexing will continue
+     //dist = dist_avg;
+     //dt = dtavg;
+
+     return sat_velocity;
 }
 
 void nSAT::getFeedback() {
@@ -127,8 +168,32 @@ void nSAT::getFeedback() {
      *          proportional to the voltage amplitude by some
      *          constant.
      */
+     float Amplitude;
+     beta = (tanh(kr * (dist - desired_dist)) + c*tanh(kv * velsat));
+     if(beta > 0) {
+       Amplitude = ka * pow(dist,2) * (pow(abs(beta),0.5));
+     }
+     else {
+       Amplitude = -1 * ka * pow(dist,2) * (pow(abs(beta),0.5));
+     }
 
-}
+     if(Amplitude > 3.50) {
+       A_v = 3.50;
+     }
+     else if(Amplitude < -3.50) {
+       A_v = -3.50;
+     }
+     else {
+       A_v = Amplitude;
+     }
+     A_d = (A_v*490)/2.75;
+
+     //***********************//
+     //comment says return A_v and A_d
+     //can't return two values
+     //***********************//
+   }
+
 
 /*============================================================================*/
    //------------------------------------------------------------------------//
@@ -149,8 +214,29 @@ void SAT::writeHeader() {
      *      -------
      *        None
      */
+       pr->print(F("Time"));
+       pr->print(',');
+       //pr->print("dt1");
+       //pr->print(',');
+       //pr->print("dt2");
+       //pr->print(',');
+       pr->print("Distance");
+       pr->print(',');
+       //pr->print("d1");
+       //pr->print(',');
+       //pr->print("d2");
+       //pr->print(',');
+       pr->print("Velocity");
+       pr->print(',');
+       pr->print("SaturatedVelocity");
+       pr->print(',');
+       pr->print("Amplitude");
+       pr->print(',');
+       pr->print("AmplitudeDigital");
+       pr->println();
+ }
 
-}
+
 
 void SAT::writeData() {
     /*
@@ -169,7 +255,26 @@ void SAT::writeData() {
      *      -------
      *        None
      */
-
+     pr->print((millis()-exp_start)/1000.00,8);  // Current Time
+     pr->print(',');
+     //pr->print(sat->sat1.dt1,8);
+     //pr->print(',');
+     //pr->print(sat->sat1.dt2,8);
+     //pr->print(',');
+     pr->print(sat->sat1.dist,8);    // Distance
+     pr->print(',');
+     //pr->print(sat->sat1.d1,8);
+     //pr->print(',');
+     //pr->print(sat->sat1.d2,8);
+     //pr->print(',');
+     pr->print(sat->sat1.vel,8);     // Velocity
+     pr->print(',');
+     pr->print(sat->sat1.sat_velocity,8);  // Saturated Velocity
+     pr->print(',');
+     pr->print(sat->sat1.A_v,8);     // Voltage Amplitude
+     pr->print(',');
+     pr->print(sat->sat1.A_d,8);     // Digital Amplitude
+     pr->println();
 }
 
 void SAT::initSD(char fName[20]) {
