@@ -10,7 +10,7 @@
                        Piecewise-Sinusoidal Controls
    Version: 2.1
    Date Added: 02-25-2019
-   Last Updated: 03-10-2020
+   Last Updated: 04-06-2020
 
 */
 
@@ -29,23 +29,22 @@
    //                 * MISC VARIABLES *                  //
   // --------------------------------------------------- //
 /*===========================================================*/
-unsigned long period = 10000; // Experiment runtime in millis
-unsigned int startime = 0;    // Begin time of data collection
-unsigned int endtime = 0;     // End time of data collection
-unsigned int exp_start;       // Start time of experiment
-const float c = 8.5;          // Constant in feedback,  revisit
-float ka = 28.5;              // Gain, not sure,        revisit
-float kr = 1;                 // Gain, not sure,        revisit
-float kv = 1;                 // Gain, not sure,        revisit
-float desired_dist = 0.350;   // Desired relative distance, (m)
-float a = 0.97;               // Filtering constant,    revisit
-const int numSamples = 50;    // Number of distance samples
-const int numAvgs = 2;        // Number of times to average dist
-const int updateFreq = 10;    // Update frequency of feedback
-const int sinFreq = 10;       // Desired frequency of sine wave
+unsigned long period = 10000;  // Experiment runtime in millis
+unsigned int startime = 0;     // Begin time of data collection
+unsigned int endtime = 0;      // End time of data collection
+unsigned int exp_start;        // Start time of experiment
+const double c = 8.5;          // Constant in feedback,  revisit
+double ka = 28.5;              // Gain, not sure,        revisit
+double kr = 1;                 // Gain, not sure,        revisit
+double kv = 1;                 // Gain, not sure,        revisit
+double desired_dist = 0.350;   // Desired relative distance, (m)
+double a = 0.85;               // Filtering constant,    revisit
+const int numSamples = 40;     // Number of distance samples
+const int updateFreq = 10;     // Update frequency of feedback
+const int sinFreq = 10;        // Desired frequency of sine wave
 
 // Caclulate the sampling time based on the user defined params
-float sampleTime = (1000.0/updateFreq) / (numAvgs * numSamples);
+double sampleTime = (1000.0/updateFreq) / (numSamples);
 /*===========================================================*/
     // --------------------------------------------------- //
    //                 * VL53L0X DEFINITIONS *             //
@@ -62,24 +61,19 @@ struct nSat {
    *      satellite. All data is local to that satellite for
    *      optimality.
    */
-  float dist = 0.0;             // Measured relative distance
-  //float d1 = 0.0;
-  //float d2 = 0.0;
-  //float dt1 = 0.0;
-  //float dt2 = 0.0;
-  //float dt = 0.0;
-  //float dtavg = 0.0;
-  float vel = 0.0;              // Approx relative velocity
-  float velsat = 0.0;           // Velocity w/saturation
-  float A_v = 0.0;              // Voltage Amplitude
-  float A_d = 0.0;              // Digital Amplitude
-  float vel_hist[2] = {0.0};    // Cache of velocity measurement
-  float velocity_final[2] = {0.0};
-  float dist_hist[2] = {0.0};   // Cache of distance measurement
-  float dist_time[2] = {0.0};   // Recorded read times;
-  int jj = 2;                   // Iterator to determine idx
-  int idx;                      // idx used to access Cache
-  float beta;                   // Feedback variable,   revisit
+  double dist = 0.0;             // Measured relative distance
+  double dt = 0.0;
+  double vel = 0.0;              // Approx relative velocity
+  double velsat = 0.0;           // Velocity w/saturation
+  double A_v = 0.0;              // Voltage Amplitude
+  double A_d = 0.0;              // Digital Amplitude
+  double vel_hist[2] = {0.0};    // Cache of velocity measurement
+  double velocity_final[2] = {0.0};
+  double dist_hist[2] = {0.0};   // Cache of distance measurement
+  double dist_time[2] = {0.0};   // Recorded read times;
+  int jj = 2;                    // Iterator to determine idx
+  int idx;                       // idx used to access Cache
+  double beta;                   // Feedback variable,   revisit
   /*=========================================================*/
       // ------------------------------------------------- //
      //        * LINEAR FIT OF RELATIVE DISTANCE *        //
@@ -162,66 +156,25 @@ struct nSat {
      *          satellite and the next. Units are in m/s
      */
 
-    // The following block calculates the velocity based on an
-    // averaged distance
-    /*
-    float dist_avg = 0.0;
-    for(int ii = 0; ii<numAvgs; ++ii) {
-      dist_hist[ii] = sensorDistRead(sens);
-      dist_time[ii] = (float)millis()/1000.00;
-      if(dist_hist[ii] >= 0.9) {
-        dist_hist[ii] = dist;
-      }
-      dist_avg += dist_hist[ii];
-      dtavg += dist_time[ii];
+    double dist_avg = 0.0;
+    double dtavg = 0.0;
+    dist_avg = sensorDistRead(sens);
+    dtavg = (double)millis()/1000.00;
+
+    if(dist_avg >= 0.9) {
+      dist_avg = dist;
     }
 
-    // Get the average relative distance to write to file
-    dist_avg /= numAvgs;
-    dtavg /= numAvgs;
+    idx = jj % 2;
 
-    d1 = dist_hist[0];
-    d2 = dist_hist[1];
-    dt1 = dist_time[0];
-    dt2 = dist_time[1];
-
-    idx = jj % 2; // Use the modulus as index so we don't
-                  // continually have to reset arrays
-
-    // Estimate the velocity as dx/dt
-    vel_hist[idx] = (dist_avg - dist)
-                  / (dtavg - dt);
-    */
-
-    // The following block calculates velocity based on
-    // an average velocity
-    float vel_avg = 0.0;
-    float dist_avg = 0.0;
-    int curIdx;
-    for(int ii=2; ii<numSamples+2; ++ii) {
-      curIdx = ii % 2;
-      dist_hist[curIdx] = fitData(sens->readReg16Bit(sens->RESULT_RANGE_STATUS + 10));
-      dist_time[curIdx] = (float)millis()/1000.00;
-
-      dist_avg += dist_hist[curIdx];
-      vel_avg += (dist_hist[curIdx] - dist_hist[!curIdx])
-                / (dist_time[curIdx] - dist_time[!curIdx]);
-      delay(sampleTime);
-    }
-
-    idx = jj % 2; // Use the modulus as index so we don't
-                  // continually have to reset arrays
-    vel_hist[idx] = vel_avg / numSamples;
-    dist = dist_avg / numSamples;
-
+    vel_hist[idx] = (dist_avg - dist) / (dtavg - dt);
     // Saturate if moving too fast
     if(abs(vel_hist[idx]) > 0.5) {
       vel_hist[idx] = vel_hist[!idx];
     }
 
     // Uncomment if filtering is needed
-    //velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
-    velocity_final[idx] = vel_hist[idx];
+    velocity_final[idx] = a * velocity_final[!idx] + (1-a) * vel_hist[idx];
 
     // If velocity is small enough, saturate it to smooth control
     if( abs(velocity_final[idx]) <= 0.001 ) {
@@ -233,8 +186,8 @@ struct nSat {
 
     vel = velocity_final[idx]; // Store the new velocity
     ++jj; // Increment so that our modulus indexing will continue
-    //dist = dist_avg;
-    //dt = dtavg;
+    dist = dist_avg;
+    dt = dtavg;
   }
   /*=========================================================*/
       // ------------------------------------------------- //
@@ -325,16 +278,8 @@ void writeHeader(Print* pr) {
    */
   pr->print(F("Time"));
   pr->print(',');
-  //pr->print("dt1");
-  //pr->print(',');
-  //pr->print("dt2");
-  //pr->print(',');
   pr->print("Distance");
   pr->print(',');
-  //pr->print("d1");
-  //pr->print(',');
-  //pr->print("d2");
-  //pr->print(',');
   pr->print("Velocity");
   pr->print(',');
   pr->print("SaturatedVelocity");
@@ -368,16 +313,8 @@ void printData(Print* pr, satdat* sat) {
    */
   pr->print((millis()-exp_start)/1000.00,8);  // Current Time
   pr->print(',');
-  //pr->print(sat->sat1.dt1,8);
-  //pr->print(',');
-  //pr->print(sat->sat1.dt2,8);
-  //pr->print(',');
   pr->print(sat->sat1.dist,8);    // Distance
   pr->print(',');
-  //pr->print(sat->sat1.d1,8);
-  //pr->print(',');
-  //pr->print(sat->sat1.d2,8);
-  //pr->print(',');
   pr->print(sat->sat1.vel,8);     // Velocity
   pr->print(',');
   pr->print(sat->sat1.velsat,8);  // Saturated Velocity
@@ -468,6 +405,9 @@ void initSD() {
   }
 
   // Open the SD file with read/write permissions
+  if(sd.exists(filename)) {
+    sd.remove(filename);
+  }
   while(!file.open(filename, O_RDWR | O_CREAT | O_TRUNC)){
     delay(10);
   }
@@ -532,6 +472,13 @@ void setup() {
   while(Serial.available() == 0) {}
   while(Serial.read() != 'A') {}
   Serial.println("Starting..");
+
+  // Initial Distance and timestamp
+  sat.sat1.dist = sat.sat1.sensorDistRead(&sens);
+  sat.sat1.dt = (double)millis()/1000.00;
+  sat.sat1.dist_hist[1] = sat.sat1.dist;
+  sat.sat1.dist_time[1] = sat.sat1.dt;
+  delay(100);
 
   // BEGIN EXPERIMENT //
   exp_start = millis();
